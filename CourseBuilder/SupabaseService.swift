@@ -167,7 +167,7 @@ final class SupabaseService {
                     .value
                 
                 // Convert response to Question models with proper options parsing
-                let questions = response.compactMap { questionData -> Question? in
+                let allQuestions = response.compactMap { questionData -> Question? in
                     do {
                         let question = try self.parseQuestionResponse(questionData)
                         print("✅ Debug: Successfully parsed question: \(question.id) - \(question.question.prefix(50))...")
@@ -179,8 +179,26 @@ final class SupabaseService {
                     }
                 }
                 
-                print("✅ Debug: Successfully fetched \(questions.count) questions")
-                return questions
+                // Filter to only include multiple choice and true/false questions
+                let filteredQuestions = allQuestions.filter { question in
+                    let allowedTypes = [
+                        "multiple-choice",
+                        "multiple_choice", 
+                        "true-false",
+                        "true_false"
+                    ]
+                    
+                    let isAllowed = allowedTypes.contains(question.type.lowercased())
+                    
+                    if !isAllowed {
+                        print("🚫 Debug: Skipping question \(question.id) with unsupported type: \(question.type)")
+                    }
+                    
+                    return isAllowed
+                }
+                
+                print("✅ Debug: Successfully fetched \(allQuestions.count) questions, filtered to \(filteredQuestions.count) (multiple-choice/true-false only)")
+                return filteredQuestions
                 
             } catch let error as DecodingError {
                 print("❌ Debug: Failed to decode questions data: \(error)")

@@ -9,12 +9,60 @@ import SwiftUI
 import CoreData
 import WebKit
 
+// MARK: - Video Controller for Question Integration
+@Observable
+class VideoController {
+    private weak var webView: WKWebView?
+    
+    func setWebView(_ webView: WKWebView) {
+        self.webView = webView
+        print("🎮 Debug: VideoController webView reference set")
+    }
+    
+    /// Pause the video (called when question appears)
+    func pauseVideo() {
+        guard let webView = webView else {
+            print("❌ Debug: Cannot pause - no webView reference")
+            return
+        }
+        
+        let javascript = "pauseVideo();"
+        webView.evaluateJavaScript(javascript) { result, error in
+            if let error = error {
+                print("❌ Debug: Error pausing video: \(error)")
+            } else {
+                print("⏸️ Debug: Video pause command sent successfully")
+            }
+        }
+    }
+    
+    /// Play the video (called when continuing after question)
+    func playVideo() {
+        guard let webView = webView else {
+            print("❌ Debug: Cannot play - no webView reference")
+            return
+        }
+        
+        let javascript = "playVideo();"
+        webView.evaluateJavaScript(javascript) { result, error in
+            if let error = error {
+                print("❌ Debug: Error playing video: \(error)")
+            } else {
+                print("▶️ Debug: Video play command sent successfully")
+            }
+        }
+    }
+}
+
 // MARK: - YouTube Video Player Component
 struct YouTubeVideoView: UIViewRepresentable {
     let videoURL: String
     @Binding var currentTime: Double
     @Binding var duration: Double
     @Binding var isPlaying: Bool
+    
+    // Add video control capabilities
+    let videoController: VideoController
     
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -41,8 +89,10 @@ struct YouTubeVideoView: UIViewRepresentable {
         webView.scrollView.maximumZoomScale = 1.0
         webView.scrollView.minimumZoomScale = 1.0
         
-        // Set up the coordinator with bindings immediately
+        // Set up the coordinator with bindings and webview reference
         context.coordinator.updateBindings(currentTime: $currentTime, duration: $duration, isPlaying: $isPlaying)
+        context.coordinator.webView = webView
+        videoController.setWebView(webView)
         
         print("🎥 Debug: WKWebView configured for inline playback with JavaScript API")
         return webView
@@ -51,6 +101,10 @@ struct YouTubeVideoView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {
         // Update bindings on every update
         context.coordinator.updateBindings(currentTime: $currentTime, duration: $duration, isPlaying: $isPlaying)
+        
+        // Update coordinator's webView reference
+        context.coordinator.webView = uiView
+        videoController.setWebView(uiView)
         
         // Only load HTML if it hasn't been loaded yet or if the video URL changed
         let videoID = extractVideoID(from: videoURL)
@@ -63,7 +117,7 @@ struct YouTubeVideoView: UIViewRepresentable {
     }
     
     private func loadYouTubePlayer(in webView: WKWebView, videoID: String) {
-        // Create HTML with proper YouTube iframe API implementation
+        // Create HTML with proper YouTube iframe API implementation and pause/play controls
         let html = """
         <!DOCTYPE html>
         <html>
@@ -175,6 +229,27 @@ struct YouTubeVideoView: UIViewRepresentable {
                     }
                 }
                 
+                // Video control functions for question system
+                function pauseVideo() {
+                    if (player && player.pauseVideo) {
+                        console.log('⏸️ Pausing video for question');
+                        player.pauseVideo();
+                        return true;
+                    }
+                    console.log('❌ Cannot pause video - player not ready');
+                    return false;
+                }
+                
+                function playVideo() {
+                    if (player && player.playVideo) {
+                        console.log('▶️ Playing video after question');
+                        player.playVideo();
+                        return true;
+                    }
+                    console.log('❌ Cannot play video - player not ready');
+                    return false;
+                }
+                
                 // Cleanup on page unload
                 window.addEventListener('beforeunload', function() {
                     if (updateInterval) {
@@ -230,6 +305,9 @@ struct YouTubeVideoView: UIViewRepresentable {
         
         // Keep track of current video to avoid unnecessary reloads
         var currentVideoID: String = ""
+        
+        // Reference to webView for video control
+        weak var webView: WKWebView?
         
         func updateBindings(currentTime: Binding<Double>, duration: Binding<Double>, isPlaying: Binding<Bool>) {
             self.currentTimeBinding = currentTime
@@ -292,6 +370,9 @@ struct ContentView: View {
     // Course view model for Supabase integration
     let courseViewModel = CourseViewModel()
     
+    // Video controller for pause/play functionality
+    let videoController = VideoController()
+    
     // Real video time from YouTube player
     @State private var realCurrentTime: Double = 0
     @State private var realDuration: Double = 0
@@ -306,7 +387,8 @@ struct ContentView: View {
                         videoURL: courseViewModel.course?.youtubeUrl ?? "https://www.youtube.com/watch?v=iSPzVzxF4Cc",
                         currentTime: $realCurrentTime,
                         duration: $realDuration,
-                        isPlaying: $realIsPlaying
+                        isPlaying: $realIsPlaying,
+                        videoController: videoController
                     )
                     .frame(height: geometry.size.height / 2 - 60)
                     .background(Color.black)
@@ -337,6 +419,8 @@ struct ContentView: View {
         .background(Color(.systemGray6))
         .onAppear {
             print("🚀 Debug: ContentView appeared with real video time tracking")
+            // Connect video controller to course view model
+            courseViewModel.setVideoController(videoController)
         }
         .onChange(of: realCurrentTime) { _, newTime in
             // Update course view model with real video time

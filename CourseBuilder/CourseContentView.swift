@@ -111,12 +111,7 @@ struct CourseInfoView: View {
                         questionResults: viewModel.questionResults,
                         currentTime: viewModel.currentTime
                     )
-                }
-                
-                // Debug Section (for development)
-                #if DEBUG
-                DebugSectionView(viewModel: viewModel)
-                #endif
+                }                
             }
             .padding(16)
         }
@@ -260,40 +255,6 @@ struct QuestionItemView: View {
     }
 }
 
-// MARK: - Debug Section View
-
-#if DEBUG
-struct DebugSectionView: View {
-    let viewModel: CourseViewModel
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Debug Info")
-                .font(.headline)
-                .fontWeight(.semibold)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Current Time: \(viewModel.formatTime(viewModel.currentTime))")
-                Text("Duration: \(viewModel.formatTime(viewModel.duration))")
-                Text("Questions Loaded: \(viewModel.questions.count)")
-                Text("Show Question: \(viewModel.showQuestion)")
-                Text("Current Question Index: \(viewModel.currentQuestionIndex)")
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-            
-            Button("Reset Progress") {
-                viewModel.resetProgress()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-        .padding(16)
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
-    }
-}
-#endif
 
 // MARK: - Stat Badge View
 

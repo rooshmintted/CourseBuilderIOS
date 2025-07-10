@@ -82,10 +82,18 @@ struct Question: Codable, Identifiable {
     }
     
     var formattedOptions: [String] {
-        // Handle true/false questions
-        if type == "true-false" || type == "true_false" {
+        // Handle true/false questions (case-insensitive)
+        let lowerType = type.lowercased()
+        if lowerType == "true-false" || lowerType == "true_false" {
             return ["True", "False"]
         }
+        
+        // For multiple choice questions, return the provided options
+        if lowerType == "multiple-choice" || lowerType == "multiple_choice" {
+            return options ?? []
+        }
+        
+        // Default fallback for any other supported question types
         return options ?? []
     }
     

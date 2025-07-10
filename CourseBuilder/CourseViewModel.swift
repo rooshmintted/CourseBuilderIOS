@@ -34,6 +34,9 @@ final class CourseViewModel {
     var currentTime: Double = 0
     var duration: Double = 0
     
+    // Video controller for pause/play functionality
+    private var videoController: VideoController?
+    
     // Constants
     private let courseId = "635ac9eb-8876-42fb-a25e-3411b1a68c49" // Hardcoded as requested
     private let supabaseService = SupabaseService.shared
@@ -107,6 +110,9 @@ final class CourseViewModel {
             print("❓ Debug: Showing question at timestamp \(currentTime)s: \(nextQuestion.element.question)")
             currentQuestionIndex = nextQuestion.offset
             showQuestion = true
+            
+            // Pause the video when question appears
+            videoController?.pauseVideo()
         }
     }
     
@@ -153,9 +159,18 @@ final class CourseViewModel {
     func continueVideo() {
         print("▶️ Debug: Continuing video after question")
         showQuestion = false
+        
+        // Resume video playback when continuing after question
+        videoController?.playVideo()
     }
     
     // MARK: - Video Integration
+    
+    /// Set the video controller for pause/play functionality
+    func setVideoController(_ controller: VideoController) {
+        videoController = controller
+        print("🎮 Debug: VideoController set in CourseViewModel")
+    }
     
     /// Update current video time and check for questions
     func updateVideoTime(_ time: Double) {

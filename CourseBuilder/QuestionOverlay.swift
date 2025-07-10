@@ -27,27 +27,17 @@ struct QuestionOverlay: View {
         VStack(spacing: 0) {
             // Question Card
             VStack(alignment: .leading, spacing: 16) {
-                // Question Header
+                // Video pause indicator
                 HStack {
-                    Image(systemName: "questionmark.circle.fill")
-                        .foregroundColor(.blue)
-                        .font(.title2)
-                    
-                    Text("Question")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    Spacer()
-                    
-                    // Question type badge
-                    Text(question.type.capitalized)
+                    Image(systemName: "pause.circle.fill")
+                        .foregroundColor(.orange)
+                    Text("Video Paused")
                         .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .cornerRadius(4)
+                        .fontWeight(.medium)
+                        .foregroundColor(.orange)
+                    Spacer()
                 }
+                .padding(.bottom, 4)
                 
                 // Question text
                 Text(question.question)
@@ -131,6 +121,7 @@ struct QuestionOverlay: View {
         .onAppear {
             questionStartTime = Date()
             print("❓ Debug: Question appeared: \(question.question)")
+            print("⏸️ Debug: Video automatically paused for question")
         }
     }
     
