@@ -12,15 +12,21 @@ import WebKit
 // MARK: - YouTube Video Player Component
 struct YouTubeVideoView: UIViewRepresentable {
     let videoURL: String
+    @Binding var currentTime: Double
+    @Binding var duration: Double
+    @Binding var isPlaying: Bool
     
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         
+        // Add script message handler for YouTube player updates
+        let userContentController = WKUserContentController()
+        userContentController.add(context.coordinator, name: "videoUpdate")
+        configuration.userContentController = userContentController
+        
         // Force inline media playback - prevent fullscreen
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
-        
-        // Additional configuration to prevent fullscreen
         configuration.allowsPictureInPictureMediaPlayback = false
         
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -35,14 +41,29 @@ struct YouTubeVideoView: UIViewRepresentable {
         webView.scrollView.maximumZoomScale = 1.0
         webView.scrollView.minimumZoomScale = 1.0
         
-        print("Debug: WKWebView configured for inline playback only")
+        // Set up the coordinator with bindings immediately
+        context.coordinator.updateBindings(currentTime: $currentTime, duration: $duration, isPlaying: $isPlaying)
+        
+        print("🎥 Debug: WKWebView configured for inline playback with JavaScript API")
         return webView
     }
     
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        let embedURL = convertToEmbedURL(from: videoURL)
+        // Update bindings on every update
+        context.coordinator.updateBindings(currentTime: $currentTime, duration: $duration, isPlaying: $isPlaying)
         
-        // Create HTML with CSS to force inline playback and prevent fullscreen
+        // Only load HTML if it hasn't been loaded yet or if the video URL changed
+        let videoID = extractVideoID(from: videoURL)
+        
+        // Check if we need to reload (avoid unnecessary reloads)
+        if context.coordinator.currentVideoID != videoID {
+            context.coordinator.currentVideoID = videoID
+            loadYouTubePlayer(in: uiView, videoID: videoID)
+        }
+    }
+    
+    private func loadYouTubePlayer(in webView: WKWebView, videoID: String) {
+        // Create HTML with proper YouTube iframe API implementation
         let html = """
         <!DOCTYPE html>
         <html>
@@ -55,37 +76,122 @@ struct YouTubeVideoView: UIViewRepresentable {
                     background: black;
                     overflow: hidden;
                 }
-                iframe {
+                #player {
                     width: 100%;
                     height: 100vh;
-                    border: none;
-                    pointer-events: auto;
-                }
-                /* Prevent fullscreen overlay */
-                .ytp-fullscreen-button {
-                    display: none !important;
                 }
             </style>
         </head>
         <body>
-            <iframe src="\(embedURL)" 
-                    allowfullscreen="false"
-                    webkitallowfullscreen="false" 
-                    mozallowfullscreen="false"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    frameborder="0">
-            </iframe>
+            <div id="player"></div>
+            
+            <script>
+                var player;
+                var updateInterval;
+                
+                // Load YouTube iframe API
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                
+                // YouTube API ready callback
+                function onYouTubeIframeAPIReady() {
+                    console.log('🎬 YouTube API Ready');
+                    player = new YT.Player('player', {
+                        height: '100%',
+                        width: '100%',
+                        videoId: '\(videoID)',
+                        playerVars: {
+                            'autoplay': 1,
+                            'controls': 1,
+                            'showinfo': 0,
+                            'rel': 0,
+                            'modestbranding': 1,
+                            'fs': 0,
+                            'cc_load_policy': 0,
+                            'iv_load_policy': 3,
+                            'playsinline': 1,
+                            'enablejsapi': 1,
+                            'origin': window.location.origin
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange
+                        }
+                    });
+                }
+                
+                function onPlayerReady(event) {
+                    console.log('🎯 Player Ready');
+                    // Send initial state immediately
+                    updatePlayerInfo();
+                    startUpdateLoop();
+                }
+                
+                function onPlayerStateChange(event) {
+                    console.log('🔄 Player State Changed:', event.data);
+                    updatePlayerInfo();
+                }
+                
+                function startUpdateLoop() {
+                    // Clear any existing interval
+                    if (updateInterval) {
+                        clearInterval(updateInterval);
+                    }
+                    // Update every 500ms for smooth progress
+                    updateInterval = setInterval(updatePlayerInfo, 500);
+                }
+                
+                function updatePlayerInfo() {
+                    if (player && player.getCurrentTime && player.getDuration && player.getPlayerState) {
+                        try {
+                            var currentTime = player.getCurrentTime() || 0;
+                            var duration = player.getDuration() || 0;
+                            var playerState = player.getPlayerState();
+                            
+                            // YouTube player states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
+                            var isPlaying = playerState === 1;
+                            
+                            console.log('⏱️ Sending update - Time:', currentTime, 'Duration:', duration, 'State:', playerState, 'Playing:', isPlaying);
+                            
+                            // Send to Swift
+                            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.videoUpdate) {
+                                window.webkit.messageHandlers.videoUpdate.postMessage({
+                                    type: 'progress',
+                                    currentTime: currentTime,
+                                    duration: duration,
+                                    playerState: playerState,
+                                    isPlaying: isPlaying
+                                });
+                            } else {
+                                console.log('❌ Message handler not available');
+                            }
+                        } catch (error) {
+                            console.log('❌ Error getting player info:', error);
+                        }
+                    } else {
+                        console.log('⚠️ Player not ready yet');
+                    }
+                }
+                
+                // Cleanup on page unload
+                window.addEventListener('beforeunload', function() {
+                    if (updateInterval) {
+                        clearInterval(updateInterval);
+                    }
+                });
+            </script>
         </body>
         </html>
         """
         
-        uiView.loadHTMLString(html, baseURL: nil)
-        print("Debug: Loading YouTube embed with inline-only HTML wrapper")
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        print("🎬 Debug: Loading YouTube player with video ID: \(videoID)")
     }
     
-    // Convert regular YouTube URL to embed format with clean parameters
-    private func convertToEmbedURL(from originalURL: String) -> String {
-        // Extract video ID from various YouTube URL formats
+    // Extract video ID from various YouTube URL formats
+    private func extractVideoID(from originalURL: String) -> String {
         var videoID = ""
         
         if let url = URL(string: originalURL) {
@@ -100,105 +206,126 @@ struct YouTubeVideoView: UIViewRepresentable {
                 // Format: https://youtu.be/VIDEO_ID
                 videoID = url.lastPathComponent
             } else if originalURL.contains("youtube.com/embed/") {
-                // Already embed format
-                return originalURL
+                // Already embed format - extract ID
+                let pathComponents = url.pathComponents
+                if pathComponents.count > 2 {
+                    videoID = pathComponents[2].components(separatedBy: "?").first ?? ""
+                }
             }
         }
         
-        // Build clean embed URL with parameters to hide YouTube UI elements and force inline playback
-        let embedURL = "https://www.youtube.com/embed/\(videoID)" +
-                      "?autoplay=1" +           // Auto-play the video
-                      "&controls=1" +           // Show video controls
-                      "&showinfo=0" +           // Hide video info
-                      "&rel=0" +                // Don't show related videos
-                      "&modestbranding=1" +     // Hide YouTube logo
-                      "&fs=0" +                 // Disable fullscreen button
-                      "&cc_load_policy=0" +     // Don't show captions by default
-                      "&iv_load_policy=3" +     // Hide annotations
-                      "&disablekb=1" +          // Disable keyboard controls
-                      "&playsinline=1" +        // Force inline playback on iOS
-                      "&enablejsapi=1" +        // Enable JavaScript API for better control
-                      "&origin=https://localhost" // Set origin for security
-        
-        print("Debug: Converted URL to embed format: \(embedURL)")
-        return embedURL
+        print("🆔 Debug: Extracted video ID: \(videoID)")
+        return videoID
     }
     
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
     
-    class Coordinator: NSObject, WKNavigationDelegate {
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        // Keep track of bindings
+        private var currentTimeBinding: Binding<Double>?
+        private var durationBinding: Binding<Double>?
+        private var isPlayingBinding: Binding<Bool>?
+        
+        // Keep track of current video to avoid unnecessary reloads
+        var currentVideoID: String = ""
+        
+        func updateBindings(currentTime: Binding<Double>, duration: Binding<Double>, isPlaying: Binding<Bool>) {
+            self.currentTimeBinding = currentTime
+            self.durationBinding = duration
+            self.isPlayingBinding = isPlaying
+            print("🔗 Debug: Bindings updated in coordinator")
+        }
+        
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            print("Debug: YouTube video finished loading")
+            print("🎯 Debug: YouTube video finished loading")
+        }
+        
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            print("❌ Debug: WebView navigation failed: \(error)")
+        }
+        
+        // Handle messages from JavaScript
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            print("📨 Debug: Received message from JavaScript: \(message.body)")
+            
+            guard message.name == "videoUpdate",
+                  let body = message.body as? [String: Any],
+                  let type = body["type"] as? String else {
+                print("❌ Debug: Invalid message format")
+                return
+            }
+            
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                
+                switch type {
+                case "progress":
+                    if let currentTime = body["currentTime"] as? Double {
+                        self.currentTimeBinding?.wrappedValue = currentTime
+                        print("⏱️ Debug: Updated currentTime to: \(String(format: "%.1f", currentTime))s")
+                    }
+                    if let duration = body["duration"] as? Double {
+                        self.durationBinding?.wrappedValue = duration
+                        print("⏰ Debug: Updated duration to: \(String(format: "%.1f", duration))s")
+                    }
+                    if let isPlaying = body["isPlaying"] as? Bool {
+                        self.isPlayingBinding?.wrappedValue = isPlaying
+                        print("▶️ Debug: Updated playing state to: \(isPlaying)")
+                    }
+                    if let playerState = body["playerState"] as? Int {
+                        print("🎮 Debug: Player state: \(playerState)")
+                    }
+                default:
+                    print("🔍 Debug: Unknown message type: \(type)")
+                }
+            }
         }
     }
-}
-
-// MARK: - Transcript Item Model
-struct TranscriptItem: Identifiable {
-    let id = UUID()
-    let timestamp: String
-    let text: String
-    let isHighlighted: Bool = false
 }
 
 // MARK: - Main Content View
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
     
-    // Sample transcript data - replace with actual data later
-    @State private var transcriptItems: [TranscriptItem] = [
-        TranscriptItem(timestamp: "00:00", text: "Welcome to today's lesson on SwiftUI fundamentals"),
-        TranscriptItem(timestamp: "00:15", text: "We'll start by exploring the basic building blocks"),
-        TranscriptItem(timestamp: "00:30", text: "Understanding Views and ViewModifiers is crucial"),
-        TranscriptItem(timestamp: "00:45", text: "Let's dive into state management patterns"),
-        TranscriptItem(timestamp: "01:00", text: "Property wrappers make everything cleaner"),
-    ]
+    // Course view model for Supabase integration
+    let courseViewModel = CourseViewModel()
+    
+    // Real video time from YouTube player
+    @State private var realCurrentTime: Double = 0
+    @State private var realDuration: Double = 0
+    @State private var realIsPlaying: Bool = false
     
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 // MARK: - Top Half - YouTube Video
-                YouTubeVideoView(videoURL: "https://www.youtube.com/watch?v=iSPzVzxF4Cc")
-                    .frame(height: geometry.size.height / 2)
+                VStack(spacing: 4) {
+                    YouTubeVideoView(
+                        videoURL: courseViewModel.course?.youtubeUrl ?? "https://www.youtube.com/watch?v=iSPzVzxF4Cc",
+                        currentTime: $realCurrentTime,
+                        duration: $realDuration,
+                        isPlaying: $realIsPlaying
+                    )
+                    .frame(height: geometry.size.height / 2 - 60)
                     .background(Color.black)
                     .cornerRadius(12)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-                
-                // MARK: - Bottom Half - Transcript Area
-                VStack(alignment: .leading, spacing: 0) {
-                    // Transcript Header
-                    HStack {
-                        Text("📝 Transcript")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.primary)
-                        
-                        Spacer()
-                        
-                        Text("Tap to jump to timestamp")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
                     
-                    // Transcript Items
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(transcriptItems) { item in
-                                TranscriptItemView(item: item) {
-                                    // Handle transcript item tap
-                                    print("Debug: Tapped transcript at \(item.timestamp)")
-                                    // TODO: Implement video seeking functionality
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                    }
+                    // Smaller video controls
+                    VideoControlsView(
+                        currentTime: realCurrentTime,
+                        duration: realDuration,
+                        isPlaying: realIsPlaying
+                    )
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+                
+                // MARK: - Bottom Half - Scrollable Course Content
+                ScrollView(.vertical, showsIndicators: true) {
+                    CourseContentView(viewModel: courseViewModel)
+                        .padding(.horizontal, 8)
                 }
                 .frame(height: geometry.size.height / 2)
                 .background(Color(.systemBackground))
@@ -209,44 +336,14 @@ struct ContentView: View {
         }
         .background(Color(.systemGray6))
         .onAppear {
-            print("Debug: ContentView appeared - split screen layout initialized")
+            print("🚀 Debug: ContentView appeared with real video time tracking")
         }
-    }
-}
-
-// MARK: - Transcript Item View Component
-struct TranscriptItemView: View {
-    let item: TranscriptItem
-    let onTap: () -> Void
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Timestamp Badge
-            Text(item.timestamp)
-                .font(.caption)
-                .fontWeight(.medium)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.blue.opacity(0.1))
-                .foregroundColor(.blue)
-                .cornerRadius(6)
-            
-            // Transcript Text
-            Text(item.text)
-                .font(.body)
-                .foregroundColor(.primary)
-                .multilineTextAlignment(.leading)
-                .lineLimit(nil)
-            
-            Spacer()
+        .onChange(of: realCurrentTime) { _, newTime in
+            // Update course view model with real video time
+            courseViewModel.updateVideoTime(newTime)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Color.white)
-        .cornerRadius(8)
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
-        .onTapGesture {
-            onTap()
+        .onChange(of: realDuration) { _, newDuration in
+            courseViewModel.updateVideoDuration(newDuration)
         }
     }
 }
