@@ -601,56 +601,20 @@ struct SequencingItemView: View {
                 return NSItemProvider()
             }
             
-            // Provide stronger haptic feedback when drag starts
+            // Provide haptic feedback when drag starts
             let impact = UIImpactFeedbackGenerator(style: .medium)
             impact.prepare()
             impact.impactOccurred()
             
-            isDragging = true
+            // Start visual feedback immediately
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isDragging = true
+            }
+            
             draggedItem = item
             print("🎯 Debug: Started dragging item: \(item.content.prefix(50))...")
             
             return NSItemProvider(object: item.id.uuidString as NSString)
-        }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 5, coordinateSpace: .global)
-                .onChanged { _ in
-                    guard !hasAnswered && !isDragging else { return }
-                    
-                    // Start visual feedback immediately when drag starts
-                    withAnimation(.easeInOut(duration: 0.1)) {
-                        isDragging = true
-                    }
-                    
-                    // Provide immediate haptic feedback
-                    let impact = UIImpactFeedbackGenerator(style: .medium)
-                    impact.prepare()
-                    impact.impactOccurred()
-                    
-                    print("🚀 Debug: Fast drag detection triggered")
-                }
-        )
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.1)
-                .onEnded { _ in
-                    guard !hasAnswered else { return }
-                    
-                    // Provide haptic feedback for long press (indicates draggable)
-                    let impact = UIImpactFeedbackGenerator(style: .light)
-                    impact.prepare()
-                    impact.impactOccurred()
-                    
-                    print("🤏 Debug: Long press detected on item")
-                }
-        )
-        .onTapGesture {
-            // Provide haptic feedback when tapping (to indicate it's draggable)
-            if !hasAnswered {
-                let impact = UIImpactFeedbackGenerator(style: .light)
-                impact.prepare()
-                impact.impactOccurred()
-                print("👆 Debug: Tap detected on item")
-            }
         }
         .onChange(of: draggedItem) { _, newValue in
             // Reset dragging state when drag ends
@@ -716,12 +680,15 @@ struct SequencingDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         guard !hasAnswered else { return false }
         
-        print("🎯 Debug: Drop completed")
+        print("🎯 Debug: Sequencing drop completed")
         
-        // Reset dragged item with a slight delay to allow animation to complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            draggedItem = nil
-        }
+        // Provide haptic feedback for successful drop
+        let impact = UIImpactFeedbackGenerator(style: .light)
+        impact.prepare()
+        impact.impactOccurred()
+        
+        // Reset dragged item immediately for better responsiveness
+        draggedItem = nil
         
         return true
     }
@@ -910,7 +877,8 @@ struct MatchingItemView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
+        .frame(minHeight: 50)
         .background(itemBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -1029,7 +997,8 @@ struct MatchingDropZoneView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
+        .frame(minHeight: 60)
         .background(itemBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
