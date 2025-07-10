@@ -81,11 +81,25 @@ struct Question: Codable, Identifiable {
         return Int(correctAnswer) ?? 0
     }
     
+    /// For sequencing questions, get the correct order as array of indices
+    var correctSequence: [Int] {
+        // For sequencing questions, correct_answer should be comma-separated indices
+        if type.lowercased() == "sequencing" {
+            return correctAnswer.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        }
+        return []
+    }
+    
     var formattedOptions: [String] {
         // Handle true/false questions (case-insensitive)
         let lowerType = type.lowercased()
         if lowerType == "true-false" || lowerType == "true_false" {
             return ["True", "False"]
+        }
+        
+        // For sequencing questions, get items from metadata
+        if lowerType == "sequencing" {
+            return sequenceItems
         }
         
         // For multiple choice questions, return the provided options
@@ -95,6 +109,23 @@ struct Question: Codable, Identifiable {
         
         // Default fallback for any other supported question types
         return options ?? []
+    }
+    
+    /// For sequencing questions, extract sequence items from metadata
+    var sequenceItems: [String] {
+        guard type.lowercased() == "sequencing",
+              let metadata = metadata else {
+            return []
+        }
+        
+        // Try to get sequence_items from metadata
+        if let sequenceItems = metadata.sequenceItems {
+            print("✅ Debug: Found \(sequenceItems.count) sequence items in metadata")
+            return sequenceItems
+        }
+        
+        print("⚠️ Debug: No sequence_items found in metadata for sequencing question")
+        return []
     }
     
     enum CodingKeys: String, CodingKey {
@@ -118,10 +149,18 @@ struct QuestionMetadata: Codable {
     let boundingBoxes: [BoundingBox]?
     let detectedObjects: [DetectedObject]?
     
+    // Sequencing question specific metadata
+    let sequenceItems: [String]?
+    let sequenceType: String?
+    let videoOverlay: Bool?
+    
     enum CodingKeys: String, CodingKey {
         case requiresVideoOverlay = "requires_video_overlay"
         case boundingBoxes = "bounding_boxes"
         case detectedObjects = "detected_objects"
+        case sequenceItems = "sequence_items"
+        case sequenceType = "sequence_type"
+        case videoOverlay = "video_overlay"
     }
 }
 

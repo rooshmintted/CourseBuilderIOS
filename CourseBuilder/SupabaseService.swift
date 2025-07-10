@@ -231,13 +231,14 @@ final class SupabaseService {
                     }
                 }
                 
-                // Filter to only include multiple choice and true/false questions
+                // Filter to only include multiple choice, true/false, and sequencing questions
                 let filteredQuestions = allQuestions.filter { question in
                     let allowedTypes = [
                         "multiple-choice",
                         "multiple_choice", 
                         "true-false",
-                        "true_false"
+                        "true_false",
+                        "sequencing"
                     ]
                     
                     let isAllowed = allowedTypes.contains(question.type.lowercased())
@@ -249,7 +250,7 @@ final class SupabaseService {
                     return isAllowed
                 }
                 
-                print("✅ Debug: Successfully fetched \(allQuestions.count) questions, filtered to \(filteredQuestions.count) (multiple-choice/true-false only)")
+                print("✅ Debug: Successfully fetched \(allQuestions.count) questions, filtered to \(filteredQuestions.count) (multiple-choice/true-false/sequencing)")
                 return filteredQuestions
                 
             } catch let error as DecodingError {
@@ -334,8 +335,16 @@ final class SupabaseService {
         print("📊 Debug: Tracking question response for question \(questionId)")
         
         do {
-            // Convert selectedAnswer to integer if it's a numeric string, otherwise use 0
-            let selectedAnswerInt = Int(selectedAnswer) ?? 0
+            // For sequencing questions, selectedAnswer will be a comma-separated string
+            // For multiple choice, convert to integer; for sequencing, store as 0 and use response_data
+            let selectedAnswerInt: Int
+            
+            if selectedAnswer.contains(",") {
+                // This is likely a sequencing answer (comma-separated indices)
+                selectedAnswerInt = 0 // Store 0 for sequencing, actual sequence in response_data
+            } else {
+                selectedAnswerInt = Int(selectedAnswer) ?? 0
+            }
             
             // Create properly typed struct for database insertion
             let response = UserQuestionResponseInsert(
