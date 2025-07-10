@@ -27,7 +27,7 @@ struct QuestionOverlay: View {
         VStack(spacing: 0) {
             // Question Card
             VStack(alignment: .leading, spacing: 16) {
-                // Video pause indicator
+                // Video pause indicator and continue button
                 HStack {
                     Image(systemName: "pause.circle.fill")
                         .foregroundColor(.orange)
@@ -35,7 +35,18 @@ struct QuestionOverlay: View {
                         .font(.caption)
                         .fontWeight(.medium)
                         .foregroundColor(.orange)
+                    
                     Spacer()
+                    
+                    // Continue Video button (shown after answering)
+                    if hasAnswered {
+                        Button("Continue Video") {
+                            print("▶️ Debug: Continuing video after question")
+                            onContinue()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                    }
                 }
                 .padding(.bottom, 4)
                 
@@ -85,13 +96,6 @@ struct QuestionOverlay: View {
                 // Action buttons
                 HStack(spacing: 12) {
                     if hasAnswered {
-                        Button("Continue Video") {
-                            print("▶️ Debug: Continuing video after question")
-                            onContinue()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        
                         if question.explanation != nil {
                             Button(showExplanation ? "Hide Explanation" : "Show Explanation") {
                                 showExplanation.toggle()

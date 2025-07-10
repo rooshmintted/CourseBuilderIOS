@@ -86,6 +86,58 @@ final class SupabaseService {
     
     // MARK: - Course Operations
     
+    /// Fetch a random course from the database with retry logic
+    func fetchRandomCourse() async throws -> Course {
+        print("🎲 Debug: Fetching random course from database")
+        
+        return try await withRetry(maxAttempts: 3, delay: 1.0) {
+            do {
+                // Get all published courses (since random() function doesn't work in Supabase order)
+                let response: [Course] = try await self.client
+                    .from("courses")
+                    .select()
+                    .eq("published", value: true)
+                    .execute()
+                    .value
+                
+                guard !response.isEmpty else {
+                    print("❌ Debug: No published courses found in database")
+                    throw CourseError.noQuestionsFound
+                }
+                
+                // Pick a random course from the results on client side
+                let randomIndex = Int.random(in: 0..<response.count)
+                let randomCourse = response[randomIndex]
+                
+                print("✅ Debug: Successfully fetched random course (\(randomIndex + 1)/\(response.count)): \(randomCourse.title)")
+                return randomCourse
+                
+            } catch let error as DecodingError {
+                print("❌ Debug: Failed to decode random course data: \(error)")
+                throw CourseError.decodingError("Failed to parse course data")
+            } catch {
+                print("❌ Debug: Network error fetching random course: \(error.localizedDescription)")
+                // Map specific error types for better user experience
+                let errorMessage = error.localizedDescription.lowercased()
+                
+                if errorMessage.contains("timed out") || errorMessage.contains("timeout") {
+                    throw CourseError.timeoutError
+                } else if errorMessage.contains("network") || errorMessage.contains("connection") {
+                    throw CourseError.connectionError
+                } else if errorMessage.contains("unavailable") || errorMessage.contains("502") || errorMessage.contains("503") {
+                    throw CourseError.serviceUnavailable
+                } else {
+                    // For retryable errors, throw the original error to trigger retry
+                    if errorMessage.contains("retry") || errorMessage.contains("temporary") {
+                        throw error
+                    } else {
+                        throw CourseError.networkError(error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+    
     /// Fetch course details by ID with retry logic
     func fetchCourse(courseId: String) async throws -> Course {
         print("📚 Debug: Fetching course with ID: \(courseId)")

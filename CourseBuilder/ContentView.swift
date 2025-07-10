@@ -378,13 +378,16 @@ struct ContentView: View {
     @State private var realDuration: Double = 0
     @State private var realIsPlaying: Bool = false
     
+    // Track current video URL for auto-course transitions
+    @State private var currentVideoURL: String = "https://www.youtube.com/watch?v=iSPzVzxF4Cc"
+    
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 // MARK: - Top Half - YouTube Video
                 VStack(spacing: 4) {
                     YouTubeVideoView(
-                        videoURL: courseViewModel.course?.youtubeUrl ?? "https://www.youtube.com/watch?v=iSPzVzxF4Cc",
+                        videoURL: currentVideoURL,
                         currentTime: $realCurrentTime,
                         duration: $realDuration,
                         isPlaying: $realIsPlaying,
@@ -421,6 +424,12 @@ struct ContentView: View {
             print("🚀 Debug: ContentView appeared with real video time tracking")
             // Connect video controller to course view model
             courseViewModel.setVideoController(videoController)
+            
+            // Set initial video URL if course is already loaded
+            if let initialURL = courseViewModel.course?.youtubeUrl {
+                currentVideoURL = initialURL
+                print("🎬 Debug: Setting initial video URL: \(initialURL)")
+            }
         }
         .onChange(of: realCurrentTime) { _, newTime in
             // Update course view model with real video time
@@ -428,6 +437,17 @@ struct ContentView: View {
         }
         .onChange(of: realDuration) { _, newDuration in
             courseViewModel.updateVideoDuration(newDuration)
+        }
+        .onChange(of: courseViewModel.course?.youtubeUrl) { _, newURL in
+            if let newURL = newURL, newURL != currentVideoURL {
+                print("🔄 Debug: Course changed, updating video URL to: \(newURL)")
+                currentVideoURL = newURL
+                
+                // Reset video time tracking for new video
+                realCurrentTime = 0
+                realDuration = 0
+                realIsPlaying = false
+            }
         }
     }
 }

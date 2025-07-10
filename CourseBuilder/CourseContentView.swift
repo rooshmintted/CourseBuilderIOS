@@ -20,7 +20,7 @@ struct CourseContentView: View {
         VStack(spacing: 0) {
             // Content based on loading/error state
             if viewModel.isLoading {
-                LoadingView()
+                LoadingView(message: viewModel.course == nil ? "Loading course content..." : "Loading next course...")
             } else if let error = viewModel.error {
                 ErrorView(error: error) {
                     Task {
@@ -34,6 +34,7 @@ struct CourseContentView: View {
                     onAnswer: viewModel.handleAnswer,
                     onContinue: viewModel.continueVideo
                 )
+                .id(question.id) // Force new view instance for each question
                 .transition(.scale.combined(with: .opacity))
             } else {
                 // Show course content and progress
@@ -48,14 +49,21 @@ struct CourseContentView: View {
 // MARK: - Loading View
 
 struct LoadingView: View {
+    let message: String
+    
+    init(message: String = "Loading course content...") {
+        self.message = message
+    }
+    
     var body: some View {
         VStack(spacing: 16) {
             ProgressView()
                 .scaleEffect(1.2)
             
-            Text("Loading course content...")
+            Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))

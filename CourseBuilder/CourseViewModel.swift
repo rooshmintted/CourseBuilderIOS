@@ -37,8 +37,12 @@ final class CourseViewModel {
     // Video controller for pause/play functionality
     private var videoController: VideoController?
     
-    // Constants
-    private let courseId = "635ac9eb-8876-42fb-a25e-3411b1a68c49" // Hardcoded as requested
+    // Auto-course loading state
+    private var hasTriggeredNextCourse = false
+    private let autoLoadThresholdSeconds: Double = 5.0
+    
+    // Course ID management
+    private var courseId = "635ac9eb-8876-42fb-a25e-3411b1a68c49" // Initial course
     private let supabaseService = SupabaseService.shared
     
     // MARK: - Initialization
@@ -97,11 +101,70 @@ final class CourseViewModel {
         return isConnected
     }
     
+    /// Load a random course and its questions when current video is about to end
+    @MainActor
+    func loadRandomCourse() async {
+        print("🎲 Debug: Loading random course for auto-transition")
+        isLoading = true
+        error = nil
+        
+        do {
+            // Fetch random course and its questions
+            async let randomCourseTask = supabaseService.fetchRandomCourse()
+            
+            let randomCourse = try await randomCourseTask
+            
+            // Update course ID for future reference
+            courseId = randomCourse.id
+            
+            // Load questions for the new course
+            let randomQuestions = try await supabaseService.fetchQuestions(courseId: randomCourse.id)
+            
+            // Reset all state for new course
+            resetProgress()
+            
+            // Update state with new course data
+            course = randomCourse
+            questions = randomQuestions
+            courseData = CourseData(course: randomCourse, questions: randomQuestions)
+            
+            print("✅ Debug: Successfully loaded random course '\(randomCourse.title)' with \(randomQuestions.count) questions")
+            
+            // Reset the trigger flag for the next video
+            hasTriggeredNextCourse = false
+            
+        } catch {
+            print("❌ Debug: Failed to load random course: \(error.localizedDescription)")
+            self.error = getErrorMessage(for: error)
+            hasTriggeredNextCourse = false // Reset flag even on error
+        }
+        
+        isLoading = false
+    }
+    
     // MARK: - Question Management
     
     /// Check if any questions should be shown at current time
     func checkForQuestions() {
-        guard !showQuestion && !questions.isEmpty && currentTime > 0 else { return }
+        guard !questions.isEmpty && currentTime > 0 else { return }
+        
+        // If a question is currently showing, check if it should still be visible
+        if showQuestion {
+            let currentQuestionTimestamp = questions[currentQuestionIndex].timestampSeconds
+            let isCurrentQuestionAnswered = answeredQuestions.contains(currentQuestionIndex)
+            
+            // Hide question if user has answered it or seeked significantly past it (5+ seconds)
+            if isCurrentQuestionAnswered || (currentTime > currentQuestionTimestamp + 5.0) {
+                print("❌ Debug: Hiding question - answered: \(isCurrentQuestionAnswered), seeked past: \(currentTime > currentQuestionTimestamp + 5.0)")
+                showQuestion = false
+                videoController?.playVideo() // Resume if paused
+            }
+            
+            // Don't check for new questions while one is showing
+            if showQuestion {
+                return
+            }
+        }
         
         // Find next unanswered question at current timestamp
         if let nextQuestion = questions.enumerated().first(where: { index, question in
@@ -176,6 +239,24 @@ final class CourseViewModel {
     func updateVideoTime(_ time: Double) {
         currentTime = time
         checkForQuestions()
+        checkForNextCourseLoad()
+    }
+    
+    /// Check if we should load the next random course (5 seconds before end)
+    private func checkForNextCourseLoad() {
+        guard duration > 0 && !hasTriggeredNextCourse else { return }
+        
+        let timeRemaining = duration - currentTime
+        print("⏰ Debug: Time remaining: \(String(format: "%.1f", timeRemaining))s, threshold: \(autoLoadThresholdSeconds)s")
+        
+        if timeRemaining <= autoLoadThresholdSeconds && timeRemaining > 0 {
+            print("🚨 Debug: Triggering next course load - \(String(format: "%.1f", timeRemaining))s remaining")
+            hasTriggeredNextCourse = true
+            
+            Task {
+                await loadRandomCourse()
+            }
+        }
     }
     
     /// Update video duration
@@ -263,6 +344,7 @@ final class CourseViewModel {
         showQuestion = false
         currentQuestionIndex = 0
         currentTime = 0
+        hasTriggeredNextCourse = false
     }
 }
 
