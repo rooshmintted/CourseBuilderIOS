@@ -102,6 +102,11 @@ struct Question: Codable, Identifiable {
             return sequenceItems
         }
         
+        // For matching questions, combine left and right items for fallback
+        if lowerType == "matching" {
+            return leftItems + rightItems
+        }
+        
         // For multiple choice questions, return the provided options
         if lowerType == "multiple-choice" || lowerType == "multiple_choice" {
             return options ?? []
@@ -126,6 +131,33 @@ struct Question: Codable, Identifiable {
         
         print("⚠️ Debug: No sequence_items found in metadata for sequencing question")
         return []
+    }
+    
+    /// For matching questions, extract matching pairs from metadata
+    var matchingPairs: [MatchingPair] {
+        guard type.lowercased() == "matching",
+              let metadata = metadata else {
+            return []
+        }
+        
+        // Try to get matching_pairs from metadata
+        if let matchingPairs = metadata.matchingPairs {
+            print("✅ Debug: Found \(matchingPairs.count) matching pairs in metadata")
+            return matchingPairs
+        }
+        
+        print("⚠️ Debug: No matching_pairs found in metadata for matching question")
+        return []
+    }
+    
+    /// For matching questions, get left side items
+    var leftItems: [String] {
+        return matchingPairs.map { $0.left }
+    }
+    
+    /// For matching questions, get right side items (shuffled)
+    var rightItems: [String] {
+        return matchingPairs.map { $0.right }.shuffled()
     }
     
     enum CodingKeys: String, CodingKey {
@@ -154,6 +186,10 @@ struct QuestionMetadata: Codable {
     let sequenceType: String?
     let videoOverlay: Bool?
     
+    // Matching question specific metadata
+    let matchingPairs: [MatchingPair]?
+    let relationshipType: String?
+    
     enum CodingKeys: String, CodingKey {
         case requiresVideoOverlay = "requires_video_overlay"
         case boundingBoxes = "bounding_boxes"
@@ -161,6 +197,19 @@ struct QuestionMetadata: Codable {
         case sequenceItems = "sequence_items"
         case sequenceType = "sequence_type"
         case videoOverlay = "video_overlay"
+        case matchingPairs = "matching_pairs"
+        case relationshipType = "relationship_type"
+    }
+}
+
+/// Matching pair for matching questions
+struct MatchingPair: Codable, Identifiable {
+    let id = UUID()
+    let left: String
+    let right: String
+    
+    enum CodingKeys: String, CodingKey {
+        case left, right
     }
 }
 

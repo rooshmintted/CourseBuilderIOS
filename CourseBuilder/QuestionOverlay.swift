@@ -25,6 +25,12 @@ struct QuestionOverlay: View {
     @State private var sequencingItems: [SequencingItem] = []
     @State private var draggedItem: SequencingItem?
     
+    // Matching-specific state
+    @State private var leftMatchingItems: [MatchingItem] = []
+    @State private var rightMatchingItems: [MatchingItem] = []
+    @State private var userMatches: [String: String] = [:]  // left item ID -> right item ID
+    @State private var draggedMatchingItem: MatchingItem?
+    
     // MARK: - Body
     
     var body: some View {
@@ -69,6 +75,17 @@ struct QuestionOverlay: View {
                         correctSequence: question.correctSequence
                     ) { userSequence in
                         handleSequencingAnswer(userSequence: userSequence)
+                    }
+                } else if question.type.lowercased() == "matching" {
+                    MatchingQuestionView(
+                        leftItems: $leftMatchingItems,
+                        rightItems: $rightMatchingItems,
+                        userMatches: $userMatches,
+                        draggedItem: $draggedMatchingItem,
+                        hasAnswered: hasAnswered,
+                        correctPairs: question.matchingPairs
+                    ) { matches in
+                        handleMatchingAnswer(userMatches: matches)
                     }
                 } else if !question.formattedOptions.isEmpty {
                     // Existing multiple choice/true-false UI
@@ -144,6 +161,11 @@ struct QuestionOverlay: View {
             // Initialize sequencing items if it's a sequencing question
             if question.type.lowercased() == "sequencing" {
                 initializeSequencingItems()
+            }
+            
+            // Initialize matching items if it's a matching question
+            if question.type.lowercased() == "matching" {
+                initializeMatchingItems()
             }
         }
     }
@@ -229,6 +251,92 @@ struct QuestionOverlay: View {
         
         // Call the answer handler
         onAnswer(isCorrect, sequenceString)
+    }
+    
+    /// Initialize matching items for matching questions
+    private func initializeMatchingItems() {
+        let pairs = question.matchingPairs
+        print("🔍 Debug: Matching question initialization")
+        print("📋 Debug: Question type: \(question.type)")
+        print("📊 Debug: Metadata exists: \(question.metadata != nil)")
+        print("🔢 Debug: Found \(pairs.count) matching pairs")
+        
+        var leftItems: [MatchingItem] = []
+        var rightItems: [MatchingItem] = []
+        
+        for (index, pair) in pairs.enumerated() {
+            // Create left side items
+            leftItems.append(MatchingItem(
+                id: UUID(),
+                originalIndex: index,
+                content: pair.left,
+                side: .left,
+                pairId: pair.id
+            ))
+            
+            // Create right side items
+            rightItems.append(MatchingItem(
+                id: UUID(),
+                originalIndex: index,
+                content: pair.right,
+                side: .right,
+                pairId: pair.id
+            ))
+            
+            print("➕ Debug: Added pair \(index): '\(pair.left)' -> '\(pair.right)'")
+        }
+        
+        // Shuffle the right side items
+        leftMatchingItems = leftItems
+        rightMatchingItems = rightItems.shuffled()
+        
+        print("🔀 Debug: Initialized \(leftMatchingItems.count) left items and \(rightMatchingItems.count) right items")
+        if leftMatchingItems.isEmpty {
+            print("❌ Debug: No matching items found! Check metadata parsing.")
+        }
+    }
+    
+    /// Handle matching question answer submission
+    private func handleMatchingAnswer(userMatches: [String: String]) {
+        guard !hasAnswered else { return }
+        
+        hasAnswered = true
+        
+        let correctPairs = question.matchingPairs
+        var correctMatches = 0
+        
+        // Check each user match against correct pairs
+        for (leftItemId, rightItemId) in userMatches {
+            if let leftItem = leftMatchingItems.first(where: { $0.id.uuidString == leftItemId }),
+               let rightItem = rightMatchingItems.first(where: { $0.id.uuidString == rightItemId }) {
+                
+                // Find the correct pair for this left item
+                if let correctPair = correctPairs.first(where: { $0.left == leftItem.content }) {
+                    if correctPair.right == rightItem.content {
+                        correctMatches += 1
+                    }
+                }
+            }
+        }
+        
+        let isCorrect = correctMatches == correctPairs.count && userMatches.count == correctPairs.count
+        let responseTime = Int(Date().timeIntervalSince(questionStartTime) * 1000)
+        
+        print("📝 Debug: Matching answer submitted")
+        print("✅ Debug: User matches: \(userMatches.count)")
+        print("🎯 Debug: Correct matches: \(correctMatches)/\(correctPairs.count)")
+        print("✏️ Debug: Answer correct: \(isCorrect), Time: \(responseTime)ms")
+        
+        // Show explanation automatically if available
+        if question.explanation != nil {
+            showExplanation = true
+        }
+        
+        // Convert matches to string for storage (simplified)
+        let matchesString = "\(correctMatches)/\(correctPairs.count)"
+        
+        // Call the answer handler
+        onAnswer(isCorrect, matchesString)
     }
     
     private func handleSkip() {
@@ -635,6 +743,377 @@ struct SequencingDropDelegate: DropDelegate {
                 print("🔄 Debug: Reordered item from position \(fromIndex + 1) to \(toIndex + 1)")
             }
         }
+    }
+}
+
+// MARK: - Matching Question Components
+
+/// Model for individual matching items
+struct MatchingItem: Identifiable, Equatable {
+    let id: UUID
+    let originalIndex: Int
+    let content: String
+    let side: MatchingSide
+    let pairId: UUID
+    
+    static func == (lhs: MatchingItem, rhs: MatchingItem) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+/// Side of a matching item
+enum MatchingSide {
+    case left, right
+}
+
+/// Matching question view with two columns
+struct MatchingQuestionView: View {
+    @Binding var leftItems: [MatchingItem]
+    @Binding var rightItems: [MatchingItem]
+    @Binding var userMatches: [String: String]
+    @Binding var draggedItem: MatchingItem?
+    let hasAnswered: Bool
+    let correctPairs: [MatchingPair]
+    let onSubmit: ([String: String]) -> Void
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Instructions
+            if !hasAnswered {
+                HStack {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .foregroundColor(.blue)
+                    Text("Drag items from left to right to create matching pairs")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.bottom, 8)
+            }
+            
+            // Two column layout
+            HStack(alignment: .top, spacing: 16) {
+                // Left column
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Items")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    
+                    LazyVStack(spacing: 8) {
+                        ForEach(leftItems) { item in
+                            MatchingItemView(
+                                item: item,
+                                draggedItem: $draggedItem,
+                                hasAnswered: hasAnswered,
+                                isMatched: userMatches[item.id.uuidString] != nil,
+                                isCorrectMatch: hasAnswered ? isCorrectMatch(for: item) : nil
+                            )
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Right column with drop zones
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Match with")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    
+                    LazyVStack(spacing: 8) {
+                        ForEach(rightItems) { item in
+                            MatchingDropZoneView(
+                                rightItem: item,
+                                leftItems: $leftItems,
+                                userMatches: $userMatches,
+                                draggedItem: $draggedItem,
+                                hasAnswered: hasAnswered,
+                                isCorrectMatch: hasAnswered ? isCorrectMatch(for: item) : nil
+                            )
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            
+            // Submit button
+            if !hasAnswered && userMatches.count == leftItems.count {
+                Button("Submit Matches") {
+                    onSubmit(userMatches)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.top, 8)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    /// Check if a matching is correct
+    private func isCorrectMatch(for item: MatchingItem) -> Bool {
+        if item.side == .left {
+            // Check if this left item is matched correctly
+            guard let rightItemId = userMatches[item.id.uuidString],
+                  let rightItem = rightItems.first(where: { $0.id.uuidString == rightItemId }) else {
+                return false
+            }
+            
+            return correctPairs.contains { pair in
+                pair.left == item.content && pair.right == rightItem.content
+            }
+        } else {
+            // Check if this right item is matched correctly
+            guard let leftItemId = userMatches.first(where: { $0.value == item.id.uuidString })?.key,
+                  let leftItem = leftItems.first(where: { $0.id.uuidString == leftItemId }) else {
+                return false
+            }
+            
+            return correctPairs.contains { pair in
+                pair.left == leftItem.content && pair.right == item.content
+            }
+        }
+    }
+}
+
+/// Individual matching item view
+struct MatchingItemView: View {
+    let item: MatchingItem
+    @Binding var draggedItem: MatchingItem?
+    let hasAnswered: Bool
+    let isMatched: Bool
+    let isCorrectMatch: Bool?
+    
+    @State private var isDragging = false
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(item.content)
+                .font(.body)
+                .multilineTextAlignment(.leading)
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            // Status icon
+            if hasAnswered {
+                Image(systemName: statusIcon)
+                    .foregroundColor(statusColor)
+                    .font(.caption)
+            } else if isMatched {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.caption)
+            } else {
+                Image(systemName: "circle")
+                    .foregroundColor(.gray)
+                    .font(.caption)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(itemBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(borderColor, lineWidth: 1)
+        )
+        .cornerRadius(6)
+        .scaleEffect(isDragging ? 1.05 : 1.0)
+        .opacity(isDragging ? 0.8 : 1.0)
+        .animation(.easeInOut(duration: 0.15), value: isDragging)
+        .onDrag {
+            guard !hasAnswered && item.side == .left else {
+                return NSItemProvider()
+            }
+            
+            // Haptic feedback
+            let impact = UIImpactFeedbackGenerator(style: .medium)
+            impact.prepare()
+            impact.impactOccurred()
+            
+            isDragging = true
+            draggedItem = item
+            print("🎯 Debug: Started dragging left item: \(item.content)")
+            
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        }
+        .onChange(of: draggedItem) { _, newValue in
+            if newValue?.id != item.id {
+                isDragging = false
+            }
+        }
+    }
+    
+    private var statusIcon: String {
+        return isCorrectMatch == true ? "checkmark.circle.fill" : "xmark.circle.fill"
+    }
+    
+    private var statusColor: Color {
+        return isCorrectMatch == true ? .green : .red
+    }
+    
+    private var itemBackground: Color {
+        if hasAnswered {
+            return isCorrectMatch == true ? Color.green.opacity(0.1) : Color.red.opacity(0.1)
+        } else if isMatched {
+            return Color.green.opacity(0.1)
+        }
+        return Color(.systemGray6)
+    }
+    
+    private var borderColor: Color {
+        if hasAnswered {
+            return isCorrectMatch == true ? .green : .red
+        } else if isMatched {
+            return .green
+        }
+        return Color(.systemGray4)
+    }
+}
+
+/// Drop zone for right side items
+struct MatchingDropZoneView: View {
+    let rightItem: MatchingItem
+    @Binding var leftItems: [MatchingItem]
+    @Binding var userMatches: [String: String]
+    @Binding var draggedItem: MatchingItem?
+    let hasAnswered: Bool
+    let isCorrectMatch: Bool?
+    
+    private var matchedLeftItem: MatchingItem? {
+        guard let leftItemId = userMatches.first(where: { $0.value == rightItem.id.uuidString })?.key else {
+            return nil
+        }
+        return leftItems.first { $0.id.uuidString == leftItemId }
+    }
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack {
+                if let matchedItem = matchedLeftItem {
+                    // Show matched item
+                    Text(matchedItem.content)
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(4)
+                } else {
+                    Text("Drop here")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                // Status icon
+                if hasAnswered {
+                    Image(systemName: statusIcon)
+                        .foregroundColor(statusColor)
+                        .font(.caption)
+                } else if matchedLeftItem != nil {
+                    Image(systemName: "link")
+                        .foregroundColor(.blue)
+                        .font(.caption)
+                }
+            }
+            
+            // Right item content
+            HStack {
+                Text(rightItem.content)
+                    .font(.body)
+                    .multilineTextAlignment(.leading)
+                    .foregroundColor(.primary)
+                
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(itemBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(borderColor, lineWidth: borderWidth)
+        )
+        .cornerRadius(6)
+        .onDrop(of: [.text], delegate: MatchingDropDelegate(
+            rightItem: rightItem,
+            leftItems: $leftItems,
+            userMatches: $userMatches,
+            draggedItem: $draggedItem,
+            hasAnswered: hasAnswered
+        ))
+    }
+    
+    private var statusIcon: String {
+        return isCorrectMatch == true ? "checkmark.circle.fill" : "xmark.circle.fill"
+    }
+    
+    private var statusColor: Color {
+        return isCorrectMatch == true ? .green : .red
+    }
+    
+    private var itemBackground: Color {
+        if hasAnswered {
+            return isCorrectMatch == true ? Color.green.opacity(0.1) : Color.red.opacity(0.1)
+        } else if matchedLeftItem != nil {
+            return Color.blue.opacity(0.1)
+        }
+        return Color(.systemGray6)
+    }
+    
+    private var borderColor: Color {
+        if hasAnswered {
+            return isCorrectMatch == true ? .green : .red
+        } else if matchedLeftItem != nil {
+            return .blue
+        }
+        return Color(.systemGray4)
+    }
+    
+    private var borderWidth: Double {
+        return (hasAnswered || matchedLeftItem != nil) ? 2.0 : 1.0
+    }
+}
+
+/// Drop delegate for matching questions
+struct MatchingDropDelegate: DropDelegate {
+    let rightItem: MatchingItem
+    @Binding var leftItems: [MatchingItem]
+    @Binding var userMatches: [String: String]
+    @Binding var draggedItem: MatchingItem?
+    let hasAnswered: Bool
+    
+    func performDrop(info: DropInfo) -> Bool {
+        guard !hasAnswered, let draggedItem = draggedItem else {
+            return false
+        }
+        
+        print("🎯 Debug: Matching drop - '\(draggedItem.content)' -> '\(rightItem.content)'")
+        
+        // Remove any existing match for this left item
+        userMatches.removeValue(forKey: draggedItem.id.uuidString)
+        
+        // Remove any existing match for this right item
+        if let existingLeftItemId = userMatches.first(where: { $0.value == rightItem.id.uuidString })?.key {
+            userMatches.removeValue(forKey: existingLeftItemId)
+        }
+        
+        // Create new match
+        userMatches[draggedItem.id.uuidString] = rightItem.id.uuidString
+        
+        print("✅ Debug: Match created: \(userMatches.count)/\(leftItems.count)")
+        
+        // Reset dragged item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.draggedItem = nil
+        }
+        
+        return true
+    }
+    
+    func dropEntered(info: DropInfo) {
+        // Optional: Add visual feedback when drag enters drop zone
     }
 }
 

@@ -231,14 +231,15 @@ final class SupabaseService {
                     }
                 }
                 
-                // Filter to only include multiple choice, true/false, and sequencing questions
+                // Filter to only include multiple choice, true/false, sequencing, and matching questions
                 let filteredQuestions = allQuestions.filter { question in
                     let allowedTypes = [
                         "multiple-choice",
                         "multiple_choice", 
                         "true-false",
                         "true_false",
-                        "sequencing"
+                        "sequencing",
+                        "matching"
                     ]
                     
                     let isAllowed = allowedTypes.contains(question.type.lowercased())
@@ -250,7 +251,7 @@ final class SupabaseService {
                     return isAllowed
                 }
                 
-                print("✅ Debug: Successfully fetched \(allQuestions.count) questions, filtered to \(filteredQuestions.count) (multiple-choice/true-false/sequencing)")
+                print("✅ Debug: Successfully fetched \(allQuestions.count) questions, filtered to \(filteredQuestions.count) (multiple-choice/true-false/sequencing/matching)")
                 return filteredQuestions
                 
             } catch let error as DecodingError {
